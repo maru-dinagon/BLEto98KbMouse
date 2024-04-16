@@ -1,15 +1,60 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include "LittleFS.h"
+
+#define DO_NOT_CONNECT   0
+#define DO_CONNECT_MOUSE 1
+#define DO_CONNECT_KB    2
+
 
 // UUID HID
 static NimBLEUUID serviceUUID("1812");
 // UUID Report Charcteristic
 static NimBLEUUID charUUID("2a4d");
 
+const char* MOUSE_NAME_WORD = "shellpha";
+static String MOUSE_AD_FILE = "/mouse.txt";
+
+const char* KB_NAME_WORD = "";
+static String KB_AD_FILE = "/kb.txt";
+
 static NimBLEAdvertisedDevice* advDevice;
 
-static bool doConnect = false;
+static int doConnect = DO_NOT_CONNECT;
+static bool ConnectMouse = false;
+static bool ConnectKB    = false;
+
 static uint32_t scanTime = 0; // 0でずっとスキャン
+
+void saveMouseAd(const char* ad_st){
+    File dataFile = LittleFS.open(MOUSE_AD_FILE, "w");
+    dataFile.println(ad_st);
+    dataFile.close();
+}
+
+String getMouseAd(){
+    File dataFile = LittleFS.open(MOUSE_AD_FILE, "r");
+    String buf = "";
+    buf = dataFile.readStringUntil('\n');
+    dataFile.close();
+    //Serial.println("buf=" + buf);
+    return buf;
+}
+
+void saveKbAd(const char* ad_st){
+    File dataFile = LittleFS.open(KB_AD_FILE, "w");
+    dataFile.println(ad_st);
+    dataFile.close();
+}
+
+String getKbAd(){
+    File dataFile = LittleFS.open(KB_AD_FILE, "r");
+    String buf = "";
+    buf = dataFile.readStringUntil('\n');
+    dataFile.close();
+    //Serial.println("buf=" + buf);
+    return buf;
+}
 
 // スキャン終了時に呼ばれるコールバック
 void scanEndedCB(NimBLEScanResults results){
@@ -19,20 +64,25 @@ void scanEndedCB(NimBLEScanResults results){
 // これらはデフォルトでライブラリによって処理されるため、いずれも必要ない。 必要に応じて削除してください。 
 class ClientCallbacks : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient* pClient) {
-        Serial.println("Connected");
-        //接続後、高速な応答時間が必要ない場合は、パラメータを変更する必要があります。
-        //これらの設定は、インターバル150ms、レイテンシ0、タイムアウト450ms
-        //タイムアウトはインターバルの倍数で、最小は100msです。
-        //タイムアウトはインターバルの3～5倍が素早いレスポンスと再接続に最適です。
-        //最小間隔：120 * 1.25ms = 150、最大間隔：120 * 1.25ms = 150、待ち時間0、タイムアウト60 * 10ms = 600ms
-        //pClient->updateConnParams(120,120,0,60);
-        pClient->updateConnParams(30,30,0,60);
+      Serial.println("Connected");
+      //接続後、高速な応答時間が必要ない場合は、パラメータを変更する必要があります。
+      //これらの設定は、インターバル150ms、レイテンシ0、タイムアウト450ms
+      //タイムアウトはインターバルの倍数で、最小は100msです。
+      //タイムアウトはインターバルの3～5倍が素早いレスポンスと再接続に最適です。
+      //最小間隔：120 * 1.25ms = 150、最大間隔：120 * 1.25ms = 150、待ち時間0、タイムアウト60 * 10ms = 600ms
+      //pClient->updateConnParams(120,120,0,60);
+      pClient->updateConnParams(30,30,0,60);
     };
 
     void onDisconnect(NimBLEClient* pClient) {
-        Serial.print(pClient->getPeerAddress().toString().c_str());
-        Serial.println(" Disconnected - Starting scan");
-        NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
+      Serial.print(pClient->getPeerAddress().toString().c_str());
+      Serial.println(" Disconnected - Starting scan");
+      if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
+        //マウスとの接続が切断
+        ConnectMouse = false;
+        Serial.println("Disconnected Mouse Device");
+      }
+      NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
     };
 
     //ペリフェラルが接続パラメータの変更を要求したときに呼び出される。
@@ -96,29 +146,49 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
     Serial.printf("name:%s,address:%s", advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
     Serial.printf(" UUID:%s\n", advertisedDevice->haveServiceUUID() ? advertisedDevice->getServiceUUID().toString().c_str() : "none");
 
-    //adressが一致するかどうかdd:77:54:67:9b:76
-    if((advertisedDevice->getAddress().toString().compare("dc:00:a8:2c:37:00") == 0) ||
-      (advertisedDevice->getAddress().toString().compare("1d:77:54:69:9d:0d") == 0))
-    {
-      Serial.println("アドレス一致");
+    //ペアリング済みのaddressが一致するかどうか
+    if(strncmp(advertisedDevice->getAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
+      Serial.println("Match Mouse Address");
       /** stop scan before connecting */
       NimBLEDevice::getScan()->stop();
       /** Save the device reference in a global for the client to use*/
       advDevice = advertisedDevice;
       /** Ready to connect now */
-      doConnect = true;
+      doConnect = DO_CONNECT_MOUSE;
     }
     
        
     // HID UUIDかチェックして正しければスキャンをストップ
     if (advertisedDevice->isAdvertisingService(serviceUUID)) {
-      Serial.println("Found Our Service");
+      Serial.println("Found HID Service");
+      
+      //デバイス名でマウス・キーボードの接続をコントロール
+      const char *ad_name = advertisedDevice->getName().c_str();
+
+      //マウスからのペアリング要求
+      char *mouse_f = strstr(ad_name, MOUSE_NAME_WORD);
+      if(mouse_f != nullptr){
+        Serial.println("Found Mouse Device Name");
+        saveMouseAd(advertisedDevice->getAddress().toString().c_str());
+        //スキャンの停止
+        NimBLEDevice::getScan()->stop();
+        //グローバルインスタンスへ渡す
+        advDevice = advertisedDevice;
+        // Ready to connect now
+        doConnect = DO_CONNECT_MOUSE;
+      }
+
+
+
+      
+      /*
       // stop scan before connecting
       NimBLEDevice::getScan()->stop();
       // Save the device reference in a global for the client to use
       advDevice = advertisedDevice;
       // Ready to connect now
       doConnect = true;
+      */
     }
     
   }
@@ -300,11 +370,16 @@ bool connectToServer() {
 
 }
 
-
 void setup (){
     Serial.begin(115200);
-    Serial.println("Starting NimBLE Client");
 
+    LittleFS.begin();
+    Serial.println("LittleFS started");
+
+    //saveMouseAd("testtesttest");
+    //getMouseAd();
+
+    Serial.println("Starting NimBLE Client");
     NimBLEDevice::init("");
     NimBLEDevice::setSecurityAuth(BLE_SM_PAIR_AUTHREQ_SC);
     NimBLEDevice::setPower(ESP_PWR_LVL_P9); /** +9db */
@@ -320,18 +395,34 @@ void setup (){
 
 void loop() {
     //アドバタイズコールバックで接続先がなければループ
-    while(!doConnect){
+    while(doConnect == DO_NOT_CONNECT){
         delay(1);
     }
 
-    doConnect = false;
 
     //接続先があれば接続する
     if(connectToServer()) {
         Serial.println("Success! we should now be getting notifications, scanning for more!");
+        if(doConnect == DO_CONNECT_MOUSE){
+          ConnectMouse = true;
+        }
+        if(doConnect == DO_CONNECT_KB){
+          ConnectKB = true;
+        }
     } else {
         Serial.println("Failed to connect, starting scan");
+        if(doConnect == DO_CONNECT_MOUSE){
+          ConnectMouse = false;
+        }
+        if(doConnect == DO_CONNECT_KB){
+          ConnectKB = false;
+        }
     }
+    
+    doConnect = false;
 
     //スキャン再開
-    NimBLEDevice::getScan()->start(scanTime,scanEndedCB);}
+    if((!ConnectMouse) || (!ConnectKB))
+      NimBLEDevice::getScan()->start(scanTime,scanEndedCB);
+    }
+
