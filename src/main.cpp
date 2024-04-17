@@ -6,7 +6,6 @@
 #define DO_CONNECT_MOUSE 1
 #define DO_CONNECT_KB    2
 
-
 // UUID HID
 static NimBLEUUID serviceUUID("1812");
 // UUID Report Charcteristic
@@ -15,7 +14,7 @@ static NimBLEUUID charUUID("2a4d");
 const char* MOUSE_NAME_WORD = "shellpha";
 static String MOUSE_AD_FILE = "/mouse.txt";
 
-const char* KB_NAME_WORD = "";
+const char* KB_NAME_WORD = "BT WORD";
 static String KB_AD_FILE = "/kb.txt";
 
 static NimBLEAdvertisedDevice* advDevice;
@@ -63,26 +62,46 @@ void scanEndedCB(NimBLEScanResults results){
 
 // これらはデフォルトでライブラリによって処理されるため、いずれも必要ない。 必要に応じて削除してください。 
 class ClientCallbacks : public NimBLEClientCallbacks {
+    
     void onConnect(NimBLEClient* pClient) {
-      Serial.println("Connected");
+      if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
+        //マウスと接続
+        Serial.println("Mouse Connected");
+        pClient->updateConnParams(6,6,23,200);
+      }else
+      if(strncmp(pClient->getPeerAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
+        //キーボードと接続
+        Serial.println("Keyboard Connected");
+        pClient->updateConnParams(7,7,0,300);
+      }else{
+        //デフォルト
+        Serial.println("Unkown Device Connected");
+        pClient->updateConnParams(120,120,0,60);
+      }
       //接続後、高速な応答時間が必要ない場合は、パラメータを変更する必要があります。
       //これらの設定は、インターバル150ms、レイテンシ0、タイムアウト450ms
       //タイムアウトはインターバルの倍数で、最小は100msです。
       //タイムアウトはインターバルの3～5倍が素早いレスポンスと再接続に最適です。
       //最小間隔：120 * 1.25ms = 150、最大間隔：120 * 1.25ms = 150、待ち時間0、タイムアウト60 * 10ms = 600ms
       //pClient->updateConnParams(120,120,0,60);
-      pClient->updateConnParams(30,30,0,60);
+      //pClient->updateConnParams(7,7,0,300);
     };
 
     void onDisconnect(NimBLEClient* pClient) {
       Serial.print(pClient->getPeerAddress().toString().c_str());
-      Serial.println(" Disconnected - Starting scan");
+      Serial.println(" Disconnected");
       if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
         //マウスとの接続が切断
         ConnectMouse = false;
-        Serial.println("Disconnected Mouse Device");
+        Serial.println("Disconnected Mouse Device - Starting scan");
+        NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
       }
-      NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
+      if(strncmp(pClient->getPeerAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
+        //キーボードとの接続が切断
+        ConnectKB = false;
+        Serial.println("Disconnected Keyboard Device - Starting scan");
+        NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
+      }
     };
 
     //ペリフェラルが接続パラメータの変更を要求したときに呼び出される。
@@ -126,6 +145,7 @@ class ClientCallbacks : public NimBLEClientCallbacks {
 
     //ペアリングが完了し、ble_gap_conn_descで結果を確認可能
     void onAuthenticationComplete(ble_gap_conn_desc* desc){
+        Serial.println("Call onAuthenticationComplete");
         if(!desc->sec_state.encrypted) {
             Serial.println("Encrypt connection failed - disconnecting");
             //descで指定された接続ハンドルを持つクライアントを検索し切断
@@ -146,7 +166,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
     Serial.printf("name:%s,address:%s", advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
     Serial.printf(" UUID:%s\n", advertisedDevice->haveServiceUUID() ? advertisedDevice->getServiceUUID().toString().c_str() : "none");
 
-    //ペアリング済みのaddressが一致するかどうか
+    //ペアリング済みマウスとaddressが一致するかどうか
     if(strncmp(advertisedDevice->getAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
       Serial.println("Match Mouse Address");
       /** stop scan before connecting */
@@ -155,10 +175,22 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
       advDevice = advertisedDevice;
       /** Ready to connect now */
       doConnect = DO_CONNECT_MOUSE;
+      return;
     }
     
+    //ペアリング済みキーボードとaddressが一致するかどうか
+    if(strncmp(advertisedDevice->getAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
+      Serial.println("Match Keyboard Address");
+      /** stop scan before connecting */
+      NimBLEDevice::getScan()->stop();
+      /** Save the device reference in a global for the client to use*/
+      advDevice = advertisedDevice;
+      /** Ready to connect now */
+      doConnect = DO_CONNECT_KB;
+      return;
+    }
        
-    // HID UUIDかチェックして正しければスキャンをストップ
+    // HID UUIDかチェックしてペアリングの検出
     if (advertisedDevice->isAdvertisingService(serviceUUID)) {
       Serial.println("Found HID Service");
       
@@ -176,11 +208,23 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         advDevice = advertisedDevice;
         // Ready to connect now
         doConnect = DO_CONNECT_MOUSE;
+        return;
       }
 
+      //キーボードからのペアリング要求
+      char *kb_f = strstr(ad_name, KB_NAME_WORD);
+      if(kb_f != nullptr){
+        Serial.println("Found Keyboard Device Name");
+        saveKbAd(advertisedDevice->getAddress().toString().c_str());
+        //スキャンの停止
+        NimBLEDevice::getScan()->stop();
+        //グローバルインスタンスへ渡す
+        advDevice = advertisedDevice;
+        // Ready to connect now
+        doConnect = DO_CONNECT_KB;
+        return;
+      }
 
-
-      
       /*
       // stop scan before connecting
       NimBLEDevice::getScan()->stop();
@@ -294,11 +338,15 @@ bool connectToServer() {
     //HIDサービスを取得する
     pSvc = pClient->getService(serviceUUID);
     if (pSvc) { 
+      //Serial.println("pSvc : HIDサービス取得成功");
       // 複数のCharacterisiticsを取得(リフレッシュtrue)
       pChrs = pSvc->getCharacteristics(true);
+    }else{
+      //Serial.println("pSvc : HIDサービス取得失敗");
     }
 
     if (pChrs) {
+      //Serial.println("pChrs : Characterisitics取得成功");
       // 複数のReport Characterisiticsの中からNotify属性を持っているものをCallbackに登録する
       for (int i = 0; i < pChrs->size(); i++) {
         /*  
@@ -348,8 +396,9 @@ bool connectToServer() {
         
         //Notify属性
         if (pChrs->at(i)->canNotify()) {
+          //Serial.printf("SetNotify UUID: %s\n",pChrs->at(i)->getUUID().toString().c_str());
           //if (!pChrs->at(i)->registerForNotify(notifyCB)) {
-          if(!pChrs->at(i)->subscribe(true, notifyCB)) {
+          if(!pChrs->at(i)->subscribe(true, notifyCB,true)) {
             //コールバック登録(サブスクライブ)失敗した場合は切断する
             pClient->disconnect();
             return false;
@@ -357,12 +406,14 @@ bool connectToServer() {
         } else
         //Indicate属性(Noitfyとの違いは接続元[ESP32]からの応答を要求する)
         if (pChrs->at(i)->canIndicate()) {
-          if(!pChrs->at(i)->subscribe(false, notifyCB)) {
+          if(!pChrs->at(i)->subscribe(false, notifyCB,true)) {
             pClient->disconnect();
             return false;
           }        
         }
       }
+    }else{
+      //Serial.println("pChrs : Characterisitics取得失敗");
     }
 
     Serial.println("Done with this device!");
@@ -376,12 +427,10 @@ void setup (){
     LittleFS.begin();
     Serial.println("LittleFS started");
 
-    //saveMouseAd("testtesttest");
-    //getMouseAd();
-
     Serial.println("Starting NimBLE Client");
     NimBLEDevice::init("");
     NimBLEDevice::setSecurityAuth(BLE_SM_PAIR_AUTHREQ_SC);
+
     NimBLEDevice::setPower(ESP_PWR_LVL_P9); /** +9db */
 
     NimBLEScan* pScan = NimBLEDevice::getScan();
@@ -399,10 +448,9 @@ void loop() {
         delay(1);
     }
 
-
     //接続先があれば接続する
     if(connectToServer()) {
-        Serial.println("Success! we should now be getting notifications, scanning for more!");
+        Serial.println("Success! we should now be getting notifications");
         if(doConnect == DO_CONNECT_MOUSE){
           ConnectMouse = true;
         }
