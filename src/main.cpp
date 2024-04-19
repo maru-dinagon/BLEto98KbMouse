@@ -2,14 +2,22 @@
 #include <NimBLEDevice.h>
 #include "LittleFS.h"
 
+#include "Pc98BLEMouseReportParser.hpp"
+
 #define DO_NOT_CONNECT   0
 #define DO_CONNECT_MOUSE 1
 #define DO_CONNECT_KB    2
+
+
+static Pc98BLEMouseReportParser mouse_rpt_parser;
 
 // UUID HID
 static NimBLEUUID serviceUUID("1812");
 // UUID Report Charcteristic
 static NimBLEUUID charUUID("2a4d");
+
+NimBLEAddress Mouse_Ad,Kb_Ad;
+
 
 const char* MOUSE_NAME_WORD = "shellpha";
 static String MOUSE_AD_FILE = "/mouse.txt";
@@ -67,24 +75,26 @@ class ClientCallbacks : public NimBLEClientCallbacks {
       if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
         //マウスと接続
         Serial.println("Mouse Connected");
-        pClient->updateConnParams(6,6,23,200);
+        pClient->updateConnParams(6,6,23,200); //事前調査値
+        Mouse_Ad = pClient->getPeerAddress();
+        
       }else
       if(strncmp(pClient->getPeerAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
         //キーボードと接続
         Serial.println("Keyboard Connected");
-        pClient->updateConnParams(7,7,0,300);
+        pClient->updateConnParams(7,7,0,300); //事前調査値
+        Kb_Ad = pClient->getPeerAddress();
       }else{
         //デフォルト
         Serial.println("Unkown Device Connected");
-        pClient->updateConnParams(120,120,0,60);
+        //pClient->updateConnParams(120,120,0,60);
       }
       //接続後、高速な応答時間が必要ない場合は、パラメータを変更する必要があります。
       //これらの設定は、インターバル150ms、レイテンシ0、タイムアウト450ms
       //タイムアウトはインターバルの倍数で、最小は100msです。
       //タイムアウトはインターバルの3～5倍が素早いレスポンスと再接続に最適です。
       //最小間隔：120 * 1.25ms = 150、最大間隔：120 * 1.25ms = 150、待ち時間0、タイムアウト60 * 10ms = 600ms
-      //pClient->updateConnParams(120,120,0,60);
-      //pClient->updateConnParams(7,7,0,300);
+      pClient->updateConnParams(120,120,0,60);
     };
 
     void onDisconnect(NimBLEClient* pClient) {
@@ -242,9 +252,11 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
 
 //通知(Notify)／表示(Indicate)の受信時コールバック
 void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify){
+  //ここでは文字列処理・ログ出力などの重い処理は遅延の原因となるため注意
+/* 
     std::string str = (isNotify == true) ? "Notification" : "Indication";
     str += " from ";
-    /** NimBLEAddress and NimBLEUUID have std::string operators */
+    // NimBLEAddress and NimBLEUUID have std::string operators
     str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
     str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
     str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
@@ -260,8 +272,15 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
       buf += std::string(st);   
     }
     str += ", Value = " + buf;
-
     Serial.println(str.c_str());
+*/
+    
+
+    //マウスからの通知
+    if(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().equals(Mouse_Ad)){
+      mouse_rpt_parser.Parse(8,pData);
+    }
+
 }
 
 //クライアントのプロビジョニングを処理とサーバーとの接続/インターフェースを行う。
@@ -424,6 +443,8 @@ bool connectToServer() {
 void setup (){
     Serial.begin(115200);
 
+    mouse_rpt_parser.setUpBusMouse();
+    
     LittleFS.begin();
     Serial.println("LittleFS started");
 
@@ -440,6 +461,8 @@ void setup (){
     pScan->setWindow(15);
     pScan->setActiveScan(true);
     pScan->start(scanTime, scanEndedCB);
+
+
 }
 
 void loop() {
