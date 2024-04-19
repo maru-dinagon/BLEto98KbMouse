@@ -3,13 +3,15 @@
 #include "LittleFS.h"
 
 #include "Pc98BLEMouseReportParser.hpp"
+//#include "Keyconst.h"
+#include "BLEKbdRptParser.hpp"
 
 #define DO_NOT_CONNECT   0
 #define DO_CONNECT_MOUSE 1
 #define DO_CONNECT_KB    2
 
-
 static Pc98BLEMouseReportParser mouse_rpt_parser;
+static BLEKbdRptParser kb_rpt_parser;
 
 // UUID HID
 static NimBLEUUID serviceUUID("1812");
@@ -32,6 +34,9 @@ static bool ConnectMouse = false;
 static bool ConnectKB    = false;
 
 static uint32_t scanTime = 0; // 0でずっとスキャン
+
+
+
 
 void saveMouseAd(const char* ad_st){
     File dataFile = LittleFS.open(MOUSE_AD_FILE, "w");
@@ -279,7 +284,16 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
     //マウスからの通知
     if(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().equals(Mouse_Ad)){
       mouse_rpt_parser.Parse(8,pData);
+      return;
     }
+
+    //キーボードからの通知
+    if(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().equals(Kb_Ad)){
+      Serial.println("Notify From KB");
+    
+    }
+
+
 
 }
 
@@ -443,8 +457,11 @@ bool connectToServer() {
 void setup (){
     Serial.begin(115200);
 
+    //マウスパーサー初期化
     mouse_rpt_parser.setUpBusMouse();
-    
+    //キーボードパーサー初期化
+    kb_rpt_parser.setUp98Keyboard();
+
     LittleFS.begin();
     Serial.println("LittleFS started");
 
@@ -467,8 +484,10 @@ void setup (){
 
 void loop() {
     //アドバタイズコールバックで接続先がなければループ
-    while(doConnect == DO_NOT_CONNECT){
-        delay(1);
+    if(doConnect == DO_NOT_CONNECT){
+      kb_rpt_parser.task();
+      delay(1);
+      return; 
     }
 
     //接続先があれば接続する

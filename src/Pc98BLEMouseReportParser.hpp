@@ -1,7 +1,7 @@
-#include <Arduino.h>
-
 #ifndef   PC98BLEMOUSEREPORTPARSER_HPP
 #define   PC98BLEMOUSEREPORTPARSER_HPP
+
+#include <Arduino.h>
 
 #define XA 27
 #define XB 14
