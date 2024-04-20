@@ -50,8 +50,8 @@ void Pc98BLEMouseReportParser::Parse(uint8_t len, uint8_t *buf){
 }
 
 bool Pc98BLEMouseReportParser::ParseMouseData(MOUSEINFO_EX &pmi,uint32_t len, uint8_t *buf){
-  //データ長 8byte
-  if(len != 8) return false;
+  //データ長 7byte
+  if(len != 7) return false;
 
   //ボタン
   uint8_t btn = buf[0];

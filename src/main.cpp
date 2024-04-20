@@ -3,15 +3,19 @@
 #include "LittleFS.h"
 
 #include "Pc98BLEMouseReportParser.hpp"
-//#include "Keyconst.h"
-#include "BLEKbdRptParser.hpp"
+#include "Pc98BLEKbdRptParser.hpp"
+
+//通知デバック用
+//#define NOTIFY_DEBUG 
+//アドバタイズデバック用
+//#define ADVERTISE_DEV_DEBUG
 
 #define DO_NOT_CONNECT   0
 #define DO_CONNECT_MOUSE 1
 #define DO_CONNECT_KB    2
 
 static Pc98BLEMouseReportParser mouse_rpt_parser;
-static BLEKbdRptParser kb_rpt_parser;
+static Pc98BLEKbdRptParser kb_rpt_parser;
 
 // UUID HID
 static NimBLEUUID serviceUUID("1812");
@@ -21,51 +25,54 @@ static NimBLEUUID charUUID("2a4d");
 NimBLEAddress Mouse_Ad,Kb_Ad;
 
 
+//ペアリング時に通知されるマウス名(一部でもOK) 要事前調査
 const char* MOUSE_NAME_WORD = "shellpha";
-static String MOUSE_AD_FILE = "/mouse.txt";
-
+//ペアリング時に通知されるキーボード名(一部でもOK) 要事前調査
 const char* KB_NAME_WORD = "BT WORD";
+
+//ペアリング後デバイスアドレスをLittleFSに保存するファイル名
+static String MOUSE_AD_FILE = "/mouse.txt";
 static String KB_AD_FILE = "/kb.txt";
 
 static NimBLEAdvertisedDevice* advDevice;
 
 static int doConnect = DO_NOT_CONNECT;
+
+//マウスとキーボードの接続状態
 static bool ConnectMouse = false;
 static bool ConnectKB    = false;
 
 static uint32_t scanTime = 0; // 0でずっとスキャン
 
 
-
-
-void saveMouseAd(const char* ad_st){
+void saveMouseAd(NimBLEAddress ad){
     File dataFile = LittleFS.open(MOUSE_AD_FILE, "w");
-    dataFile.println(ad_st);
+    dataFile.println(ad.toString().c_str());
     dataFile.close();
 }
 
-String getMouseAd(){
+NimBLEAddress getMouseAd(){
     File dataFile = LittleFS.open(MOUSE_AD_FILE, "r");
-    String buf = "";
-    buf = dataFile.readStringUntil('\n');
+    String buf = dataFile.readStringUntil('\n');
     dataFile.close();
+    buf.trim(); //改行除去
     //Serial.println("buf=" + buf);
-    return buf;
+    return NimBLEAddress(buf.c_str());
 }
 
-void saveKbAd(const char* ad_st){
+void saveKbAd(NimBLEAddress ad){
     File dataFile = LittleFS.open(KB_AD_FILE, "w");
-    dataFile.println(ad_st);
+    dataFile.println(ad.toString().c_str());
     dataFile.close();
 }
 
-String getKbAd(){
+NimBLEAddress getKbAd(){
     File dataFile = LittleFS.open(KB_AD_FILE, "r");
-    String buf = "";
-    buf = dataFile.readStringUntil('\n');
+    String buf = dataFile.readStringUntil('\n');
     dataFile.close();
+    buf.trim(); //改行除去
     //Serial.println("buf=" + buf);
-    return buf;
+    return NimBLEAddress(buf.c_str());;
 }
 
 // スキャン終了時に呼ばれるコールバック
@@ -77,23 +84,44 @@ void scanEndedCB(NimBLEScanResults results){
 class ClientCallbacks : public NimBLEClientCallbacks {
     
     void onConnect(NimBLEClient* pClient) {
-      if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
-        //マウスと接続
-        Serial.println("Mouse Connected");
+      if(pClient->getPeerAddress().equals(getMouseAd())){
+      //if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
+        //登録済マウスと接続
+        Serial.println("Known Mouse Connected");
         pClient->updateConnParams(6,6,23,200); //事前調査値
         Mouse_Ad = pClient->getPeerAddress();
         
       }else
-      if(strncmp(pClient->getPeerAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
-        //キーボードと接続
-        Serial.println("Keyboard Connected");
+      if(pClient->getPeerAddress().equals(getKbAd())){
+      //if(strncmp(pClient->getPeerAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
+        //登録済キーボードと接続
+        Serial.println("Known Keyboard Connected");
         pClient->updateConnParams(7,7,0,300); //事前調査値
         Kb_Ad = pClient->getPeerAddress();
       }else{
-        //デフォルト
-        Serial.println("Unkown Device Connected");
-        //pClient->updateConnParams(120,120,0,60);
+        //新規デバイスと接続
+        if(doConnect == DO_CONNECT_MOUSE){
+          //新規マウスと接続(初回ペアリング)
+          Serial.println("New Mouse Connected");
+          pClient->updateConnParams(6,6,23,200); //事前調査値
+          Mouse_Ad = pClient->getPeerAddress();
+          saveMouseAd(Mouse_Ad); //正常接続したマウスのアドレスの保持
+
+        }else
+        if(doConnect == DO_CONNECT_KB){
+          //新規キーボードと接続(初回ペアリング)
+          Serial.println("New Keyboard Connected");
+          pClient->updateConnParams(7,7,0,300); //事前調査値
+          Kb_Ad = pClient->getPeerAddress();
+          saveKbAd(Kb_Ad); //正常接続したキーボードのアドレスの保持
+
+        }else{
+          //不明デバイスと接続
+          Serial.println("Unkown Device Connected");
+          pClient->updateConnParams(120,120,0,60);
+        }
       }
+
       //接続後、高速な応答時間が必要ない場合は、パラメータを変更する必要があります。
       //これらの設定は、インターバル150ms、レイテンシ0、タイムアウト450ms
       //タイムアウトはインターバルの倍数で、最小は100msです。
@@ -105,13 +133,13 @@ class ClientCallbacks : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient* pClient) {
       Serial.print(pClient->getPeerAddress().toString().c_str());
       Serial.println(" Disconnected");
-      if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
+      if(pClient->getPeerAddress().equals(getMouseAd())){
         //マウスとの接続が切断
         ConnectMouse = false;
         Serial.println("Disconnected Mouse Device - Starting scan");
         NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
       }
-      if(strncmp(pClient->getPeerAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
+      if(pClient->getPeerAddress().equals(getKbAd())){
         //キーボードとの接続が切断
         ConnectKB = false;
         Serial.println("Disconnected Keyboard Device - Starting scan");
@@ -177,13 +205,14 @@ static ClientCallbacks clientCB;
 class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
 
   void onResult(NimBLEAdvertisedDevice *advertisedDevice) {
+#ifdef ADVERTISE_DEV_DEBUG    
     Serial.print("Advertised Device found: ");
     Serial.printf("name:%s,address:%s", advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
     Serial.printf(" UUID:%s\n", advertisedDevice->haveServiceUUID() ? advertisedDevice->getServiceUUID().toString().c_str() : "none");
-
+#endif
     //ペアリング済みマウスとaddressが一致するかどうか
-    if(strncmp(advertisedDevice->getAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
-      Serial.println("Match Mouse Address");
+    if(advertisedDevice->getAddress().equals(getMouseAd())){
+      Serial.println("Match Known Mouse Address");
       /** stop scan before connecting */
       NimBLEDevice::getScan()->stop();
       /** Save the device reference in a global for the client to use*/
@@ -194,8 +223,8 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
     }
     
     //ペアリング済みキーボードとaddressが一致するかどうか
-    if(strncmp(advertisedDevice->getAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
-      Serial.println("Match Keyboard Address");
+    if(advertisedDevice->getAddress().equals(getKbAd())){
+      Serial.println("Match Konwn Keyboard Address");
       /** stop scan before connecting */
       NimBLEDevice::getScan()->stop();
       /** Save the device reference in a global for the client to use*/
@@ -205,18 +234,18 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
       return;
     }
        
-    // HID UUIDかチェックしてペアリングの検出
+    // 新規のマウス・キーボードのペアリング HID UUIDかチェックしてペアリングの検出
     if (advertisedDevice->isAdvertisingService(serviceUUID)) {
       Serial.println("Found HID Service");
       
       //デバイス名でマウス・キーボードの接続をコントロール
       const char *ad_name = advertisedDevice->getName().c_str();
 
-      //マウスからのペアリング要求
+      //新規マウスからのペアリング要求
       char *mouse_f = strstr(ad_name, MOUSE_NAME_WORD);
       if(mouse_f != nullptr){
-        Serial.println("Found Mouse Device Name");
-        saveMouseAd(advertisedDevice->getAddress().toString().c_str());
+        Serial.println("Found Mouse Name as Unkown Address");
+        //saveMouseAd(advertisedDevice->getAddress());
         //スキャンの停止
         NimBLEDevice::getScan()->stop();
         //グローバルインスタンスへ渡す
@@ -226,11 +255,11 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         return;
       }
 
-      //キーボードからのペアリング要求
+      //新規キーボードからのペアリング要求
       char *kb_f = strstr(ad_name, KB_NAME_WORD);
       if(kb_f != nullptr){
-        Serial.println("Found Keyboard Device Name");
-        saveKbAd(advertisedDevice->getAddress().toString().c_str());
+        Serial.println("Found Keyboard Name as as Unkown Address");
+        //saveKbAd(advertisedDevice->getAddress());
         //スキャンの停止
         NimBLEDevice::getScan()->stop();
         //グローバルインスタンスへ渡す
@@ -240,6 +269,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         return;
       }
 
+      Serial.println("UnKown HID Device! Not Connection");
       /*
       // stop scan before connecting
       NimBLEDevice::getScan()->stop();
@@ -257,8 +287,9 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
 
 //通知(Notify)／表示(Indicate)の受信時コールバック
 void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify){
+
+#ifdef NOTIFY_DEBUG
   //ここでは文字列処理・ログ出力などの重い処理は遅延の原因となるため注意
-/* 
     std::string str = (isNotify == true) ? "Notification" : "Indication";
     str += " from ";
     // NimBLEAddress and NimBLEUUID have std::string operators
@@ -278,22 +309,24 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
     }
     str += ", Value = " + buf;
     Serial.println(str.c_str());
-*/
-    
+#endif
 
-    //マウスからの通知
-    if(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().equals(Mouse_Ad)){
-      mouse_rpt_parser.Parse(8,pData);
-      return;
+    //Notifyのキャラクテリスティクを処理
+    if(pRemoteCharacteristic->getUUID().equals(charUUID)){
+      
+      //マウスからの通知
+      if(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().equals(Mouse_Ad)){
+        mouse_rpt_parser.Parse(length,pData);
+        return;
+      }
+
+      //キーボードからの通知
+      if(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().equals(Kb_Ad)){
+        kb_rpt_parser.Parse(length,pData);
+        return;
+      }
+
     }
-
-    //キーボードからの通知
-    if(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().equals(Kb_Ad)){
-      Serial.println("Notify From KB");
-    
-    }
-
-
 
 }
 
@@ -462,9 +495,11 @@ void setup (){
     //キーボードパーサー初期化
     kb_rpt_parser.setUp98Keyboard();
 
+    //ファイルシステム初期化
     LittleFS.begin();
     Serial.println("LittleFS started");
 
+    //NimBLE初期化とアドバタイズ機器の検索開始
     Serial.println("Starting NimBLE Client");
     NimBLEDevice::init("");
     NimBLEDevice::setSecurityAuth(BLE_SM_PAIR_AUTHREQ_SC);
@@ -478,8 +513,6 @@ void setup (){
     pScan->setWindow(15);
     pScan->setActiveScan(true);
     pScan->start(scanTime, scanEndedCB);
-
-
 }
 
 void loop() {
@@ -511,7 +544,7 @@ void loop() {
     
     doConnect = false;
 
-    //スキャン再開
+    //マウスかキーボードが接続されてなければアドバタイズ機器のスキャン再開
     if((!ConnectMouse) || (!ConnectKB))
       NimBLEDevice::getScan()->start(scanTime,scanEndedCB);
     }

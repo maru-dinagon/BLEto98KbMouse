@@ -1,7 +1,7 @@
-#include "BLEKbdRptParser.hpp"
+#include "Pc98BLEKbdRptParser.hpp"
 
-
-void BLEKbdRptParser::Parse(bool is_rpt_id __attribute__((unused)), uint8_t len __attribute__((unused)), uint8_t *buf) {
+//パーサー パケ長8byte hidboot.cpp KeyboardReportParser::Parse部移植
+void Pc98BLEKbdRptParser::Parse(uint8_t len __attribute__((unused)), uint8_t *buf) {
  
         // On error - return
         if (buf[2] == 1)
@@ -36,7 +36,7 @@ void BLEKbdRptParser::Parse(bool is_rpt_id __attribute__((unused)), uint8_t len 
 };
 
 
-boot_mode BLEKbdRptParser::getBootMode(){
+boot_mode Pc98BLEKbdRptParser::getBootMode(){
   //アナログボタンアレイが接続されている電圧を計測する(5回サンプリング平均)
   int sample = 5;
   int vol = 0;
@@ -45,8 +45,11 @@ boot_mode BLEKbdRptParser::getBootMode(){
   }
   vol = vol / sample;
 
+
+#ifdef KEY_B_DEBUG
   //Serial.print(vol);
   //Serial.println(" mV");  
+#endif
 
   if(vol > 3000){
     //押していない(実測3181mv)
@@ -90,21 +93,22 @@ boot_mode BLEKbdRptParser::getBootMode(){
   
 }
 
-void BLEKbdRptParser::SetLed(){
+void Pc98BLEKbdRptParser::SetLed(){
   digitalWrite(KANA_LED, kana_f ? HIGH : LOW);
   digitalWrite(CAPS_LED, caps_f ? HIGH : LOW);
   digitalWrite(NUM_LED , num_f  ? HIGH : LOW);
 }
 
-void BLEKbdRptParser::setUp98Keyboard(){
+void Pc98BLEKbdRptParser::setUp98Keyboard(){
 
   //ブートモードの取得
   pinMode(BUTTON_ARRAY_ADC_PIN, ANALOG);  
   bootmode = getBootMode();
 
+#ifdef KEY_B_DEBUG
   Serial.print("bootmode = ");
   Serial.println(bootmode);
-  
+#endif  
 
   //LEDの設定
   pinMode(KANA_LED,OUTPUT);
@@ -126,7 +130,7 @@ void BLEKbdRptParser::setUp98Keyboard(){
   mySerial.begin(19200, SERIAL_8O1,RST, RXD);
 }
 
-void BLEKbdRptParser::task(){
+void Pc98BLEKbdRptParser::task(){
   //受信コマンドの処理
   pc98key_command();
   //キーリピート処理
@@ -138,7 +142,7 @@ void BLEKbdRptParser::task(){
   SetLed(); 
 }
 
-void BLEKbdRptParser::pc98key_send(uint8_t data){
+void Pc98BLEKbdRptParser::pc98key_send(uint8_t data){
 
   while(digitalRead(RDY) == HIGH) delayMicroseconds(1); //送信不可より待機
   
@@ -160,7 +164,7 @@ void BLEKbdRptParser::pc98key_send(uint8_t data){
   delayMicroseconds(500);
 }
 
-void BLEKbdRptParser::pc98key_command(void){
+void Pc98BLEKbdRptParser::pc98key_command(void){
 
   uint8_t c,up_c; //cの上位4bit保持用
 
@@ -354,7 +358,7 @@ void BLEKbdRptParser::pc98key_command(void){
   }
 }
 
-void BLEKbdRptParser::repeatKey_proc(){
+void Pc98BLEKbdRptParser::repeatKey_proc(){
 
   if(last_downkey == 0xFF || repeat_df) {
     repeat_mi = 0;
@@ -376,7 +380,7 @@ void BLEKbdRptParser::repeatKey_proc(){
   }
 }
 
-void BLEKbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
+void Pc98BLEKbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
 {
 #ifdef KEY_B_DEBUG
       Serial.print("OnKeyDown : ");
@@ -442,7 +446,7 @@ void BLEKbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
 
 }
 
-void BLEKbdRptParser::OnKeyUp(uint8_t mod, uint8_t key)
+void Pc98BLEKbdRptParser::OnKeyUp(uint8_t mod, uint8_t key)
 {
 #ifdef KEY_B_DEBUG
       Serial.print("OnKeyUp : ");
@@ -470,7 +474,7 @@ void BLEKbdRptParser::OnKeyUp(uint8_t mod, uint8_t key)
 }
 
 
-void BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
+void Pc98BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
 
   MODIFIERKEYS beforeMod;
   *((uint8_t*)&beforeMod) = before;
@@ -482,10 +486,14 @@ void BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
   if (beforeMod.bmLeftCtrl != afterMod.bmLeftCtrl) {
     last_downkey = 0xFF;
     if(afterMod.bmLeftCtrl){
+#ifdef KEY_B_DEBUG
       Serial.println("LeftCtrl push");
+#endif
       pc98key_send(KEY98_CTRL);  
     }else{
+#ifdef KEY_B_DEBUG
       Serial.println("LeftCtrl relase");
+#endif
       pc98key_send(KEY98_CTRL | R_CODE);
     }
   }
@@ -564,7 +572,9 @@ void BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
       pc98key_send(KEY98_SHIFT);  
       last_downkey = 0xFF;
     }else{
+#ifdef KEY_B_DEBUG
       Serial.println("RightShift relase");
+#endif
       pc98key_send(KEY98_SHIFT | R_CODE);
       down_mi = millis();  
     }
@@ -604,8 +614,8 @@ void BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
 
 }
 
-//USBスキャンコードから98スキャンコードに変換(NumLock状態でテーブル切り替え)
-uint8_t BLEKbdRptParser::get98Code(uint8_t key , bool num_f){
+//HIDキーボードスキャンコードから98スキャンコードに変換(NumLock状態でテーブル切り替え)
+uint8_t Pc98BLEKbdRptParser::get98Code(uint8_t key , bool num_f){
   if(num_f){
     return(codeArray[key]);
   }else{
@@ -614,7 +624,7 @@ uint8_t BLEKbdRptParser::get98Code(uint8_t key , bool num_f){
 }
 
 //テーブル初期化
-void BLEKbdRptParser::setCodeArray()
+void Pc98BLEKbdRptParser::setCodeArray()
 {
   for(int i = 0 ; i < 0xFF ; i++){
     codeArray[i]      = NA_CODE;
@@ -759,8 +769,6 @@ codeArrayNotLk[0x3B] = 0x53;    // F2 -> Vf2
 codeArrayNotLk[0x3C] = 0x54;    // F3 -> Vf3 
 codeArrayNotLk[0x3D] = 0x55;    // F4 -> Vf4 
 codeArrayNotLk[0x3E] = 0x56;    // F5 -> Vf5 
-
-
 
 /*
 codeArrayNumLk[0x] = 0x;    //   
