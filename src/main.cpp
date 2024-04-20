@@ -24,7 +24,6 @@ static NimBLEUUID charUUID("2a4d");
 
 NimBLEAddress Mouse_Ad,Kb_Ad;
 
-
 //ペアリング時に通知されるマウス名(一部でもOK) 要事前調査
 const char* MOUSE_NAME_WORD = "shellpha";
 //ペアリング時に通知されるキーボード名(一部でもOK) 要事前調査
@@ -487,14 +486,27 @@ bool connectToServer() {
 
 }
 
+//キーボードタスク用スレッド
+TaskHandle_t thp[1];
+void Core1_KbdTask(void *args) {
+  while (1) {
+    delay(1);
+    kb_rpt_parser.task();
+  }
+}
+
 void setup (){
     Serial.begin(115200);
 
-    //マウスパーサー初期化
-    mouse_rpt_parser.setUpBusMouse();
     //キーボードパーサー初期化
     kb_rpt_parser.setUp98Keyboard();
-
+    //キーボート通信処理用タスク(起動直後のパケット送受信に間に合わせるためCore1でマルチタスク化)
+    //Core0はBLEで使っておりnotifyCBが激重になるのでダメ
+    xTaskCreatePinnedToCore(Core1_KbdTask, "Core1_KbdTask", 4096, NULL, 24, &thp[0], 1); 
+   
+    //マウスパーサー初期化
+    mouse_rpt_parser.setUpBusMouse();
+ 
     //ファイルシステム初期化
     LittleFS.begin();
     Serial.println("LittleFS started");
@@ -515,10 +527,10 @@ void setup (){
     pScan->start(scanTime, scanEndedCB);
 }
 
+
 void loop() {
     //アドバタイズコールバックで接続先がなければループ
     if(doConnect == DO_NOT_CONNECT){
-      kb_rpt_parser.task();
       delay(1);
       return; 
     }
