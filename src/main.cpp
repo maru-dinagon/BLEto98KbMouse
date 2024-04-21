@@ -6,9 +6,9 @@
 #include "Pc98BLEKbdRptParser.hpp"
 
 //通知デバック用
-//#define NOTIFY_DEBUG 
+#define NOTIFY_DEBUG 
 //アドバタイズデバック用
-//#define ADVERTISE_DEV_DEBUG
+#define ADVERTISE_DEV_DEBUG
 
 #define DO_NOT_CONNECT   0
 #define DO_CONNECT_MOUSE 1
@@ -33,6 +33,14 @@ const char* KB_NAME_WORD = "BT WORD";
 static String MOUSE_AD_FILE = "/mouse.txt";
 static String KB_AD_FILE = "/kb.txt";
 
+static String ITVL_MIN_F = "/itvl_min";
+static String ITVL_MAX_F = "/itvl_max";
+static String LATENCY_F  = "/latency";
+static String TIMEOUT_F  = "/timeout";
+
+static String MOUSE_EXT  = ".mouse";
+static String KB_EXT     = ".kb";
+
 static NimBLEAdvertisedDevice* advDevice;
 
 static int doConnect = DO_NOT_CONNECT;
@@ -43,6 +51,28 @@ static bool ConnectKB    = false;
 
 static uint32_t scanTime = 0; // 0でずっとスキャン
 
+void saveValue(String F_Name,int value){
+    File dataFile = LittleFS.open(F_Name, "w");
+    dataFile.println(String(value).c_str());
+    dataFile.close();  
+}
+
+int loadValue(String F_Name,int def_value){
+    File dataFile = LittleFS.open(F_Name, "r");
+    String buf = dataFile.readStringUntil('\n');
+    dataFile.close();
+    buf.trim(); //改行除去
+    if(buf.compareTo("0")==0){
+      return 0;
+    }else{
+      int ret = buf.toInt();
+      if(ret==0){
+        return def_value;
+      }else{
+        return ret;
+      }
+    }
+}
 
 void saveMouseAd(NimBLEAddress ad){
     File dataFile = LittleFS.open(MOUSE_AD_FILE, "w");
@@ -84,17 +114,33 @@ class ClientCallbacks : public NimBLEClientCallbacks {
     
     void onConnect(NimBLEClient* pClient) {
       if(pClient->getPeerAddress().equals(getMouseAd())){
-      //if(strncmp(pClient->getPeerAddress().toString().c_str(),getMouseAd().c_str(),17) == 0){
         //登録済マウスと接続
         Serial.println("Known Mouse Connected");
-        pClient->updateConnParams(6,6,23,200); //事前調査値
+        int itvl_min = loadValue(ITVL_MIN_F + MOUSE_EXT,-1);
+        int itvl_max = loadValue(ITVL_MAX_F + MOUSE_EXT,-1);
+        int latency  = loadValue(LATENCY_F  + MOUSE_EXT,-1);
+        int time_out = loadValue(TIMEOUT_F  + MOUSE_EXT,-1);        
+        Serial.printf("itvl_min = %d, itvl_max = %d, latency = %d, timeout = %d\n",itvl_min,itvl_max,latency,time_out);
+        if(itvl_min>=0 && itvl_max>=0 && latency>=0 && time_out>=0){
+          Serial.println("updateConnParams called : Save Value");
+          pClient->updateConnParams(itvl_min,itvl_max,latency,time_out);
+        }else{
+          Serial.println("updateConnParams called : Def Value");
+          pClient->updateConnParams(120,120,0,60);
+
+        }
+        //pClient->updateConnParams(6,6,23,200); //事前調査値
         Mouse_Ad = pClient->getPeerAddress();
         
       }else
       if(pClient->getPeerAddress().equals(getKbAd())){
-      //if(strncmp(pClient->getPeerAddress().toString().c_str(),getKbAd().c_str(),17) == 0){
         //登録済キーボードと接続
         Serial.println("Known Keyboard Connected");
+        int itvl_min = loadValue(ITVL_MIN_F + KB_EXT,-1);
+        int itvl_max = loadValue(ITVL_MAX_F + KB_EXT,-1);
+        int latency  = loadValue(LATENCY_F  + KB_EXT,-1);
+        int time_out = loadValue(TIMEOUT_F  + KB_EXT,-1);        
+        Serial.printf("itvl_min = %d, itvl_max = %d, latency = %d, timeout = %d",itvl_min,itvl_max,latency,time_out);
         pClient->updateConnParams(7,7,0,300); //事前調査値
         Kb_Ad = pClient->getPeerAddress();
       }else{
@@ -102,7 +148,7 @@ class ClientCallbacks : public NimBLEClientCallbacks {
         if(doConnect == DO_CONNECT_MOUSE){
           //新規マウスと接続(初回ペアリング)
           Serial.println("New Mouse Connected");
-          pClient->updateConnParams(6,6,23,200); //事前調査値
+          //pClient->updateConnParams(6,6,23,200); //事前調査値
           Mouse_Ad = pClient->getPeerAddress();
           saveMouseAd(Mouse_Ad); //正常接続したマウスのアドレスの保持
 
@@ -110,7 +156,7 @@ class ClientCallbacks : public NimBLEClientCallbacks {
         if(doConnect == DO_CONNECT_KB){
           //新規キーボードと接続(初回ペアリング)
           Serial.println("New Keyboard Connected");
-          pClient->updateConnParams(7,7,0,300); //事前調査値
+          //pClient->updateConnParams(7,7,0,300); //事前調査値
           Kb_Ad = pClient->getPeerAddress();
           saveKbAd(Kb_Ad); //正常接続したキーボードのアドレスの保持
 
@@ -154,6 +200,21 @@ class ClientCallbacks : public NimBLEClientCallbacks {
         Serial.printf("itvl_min= %u, itvl_max= %u, latency= %u, supervision_timeout= %u",params->itvl_min,params->itvl_max,params->latency,params->supervision_timeout);
         Serial.println("");
         pClient->updateConnParams(params->itvl_min,params->itvl_max,params->latency,params->supervision_timeout);
+
+        if(pClient->getPeerAddress().equals(getMouseAd())){
+          //マウスからの要求を保存
+          saveValue(ITVL_MIN_F + MOUSE_EXT,params->itvl_min);
+          saveValue(ITVL_MAX_F + MOUSE_EXT,params->itvl_max);
+          saveValue(LATENCY_F  + MOUSE_EXT,params->latency);
+          saveValue(TIMEOUT_F  + MOUSE_EXT,params->supervision_timeout);
+        }
+        if(pClient->getPeerAddress().equals(getKbAd())){
+          //キーボードからの要求を保存
+          saveValue(ITVL_MIN_F + KB_EXT,params->itvl_min);
+          saveValue(ITVL_MAX_F + KB_EXT,params->itvl_max);
+          saveValue(LATENCY_F  + KB_EXT,params->latency);
+          saveValue(TIMEOUT_F  + KB_EXT,params->supervision_timeout);
+        }
 
         /*
         if(params->itvl_min < 24) { //1.25ms単位
