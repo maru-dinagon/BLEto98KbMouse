@@ -5,6 +5,8 @@
 
 //デバック用
 //#define KEY_B_DEBUG
+//3COINのBLEキーボード用設定有効
+#define BLE_3COIN_KB
 
 //98側(miniDin8)ピン定義
 #define RST 4 //リセット要求
@@ -117,7 +119,11 @@ class Pc98BLEKbdRptParser
     unsigned long down_mi = 0; //最後に押されたキーの時間の保持
     unsigned long repeat_mi = 0; //リピート間隔を処理する時間の保持
     boot_mode bootmode = NORMAL; //ブートモードの指定
+    bool p_shift = false; //shiftの状態保持
+    bool p_ctrl  = false; //ctrlの状態保持
+    bool p_alt   = false; //altの状態保持
     
+
     uint8_t codeArray[0xFF];         //NumLock時のコード変換テーブル
     uint8_t codeArrayNotLk[0xFF];    //NumLock解除時のコード変換テーブル
     

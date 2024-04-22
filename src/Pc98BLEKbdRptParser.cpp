@@ -279,16 +279,6 @@ void Pc98BLEKbdRptParser::pc98key_command(void){
            repeat_delay_time = repeat_delay[(d & 0b00000110) >> 1];
            repeat_speed_time = 20 * r_s;           
         }
-        
-        /*
-        if((c & 0b11111)==0){ // キーリピート禁止
-           repeat_df=1;
-        }else{
-           repeat_df=0;
-           repeat_delay_time = repeat_delay[(c & 0b01100000) >> 5];
-           repeat_speed_time = 60 * (c&0b11111);           
-        }
-        */
 
 #ifdef KEY_B_DEBUG
       Serial.print("9C-DATA : ");
@@ -435,6 +425,13 @@ void Pc98BLEKbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
       kana_f = false;
     }
   }
+
+#ifdef BLE_3COIN_KB
+  //3COINキーボード　\ -> YENへ
+  if(c == 0x33 && !p_shift && !p_ctrl){
+    c = 0x0D; 
+  }
+#endif
   
   pc98key_send(c);
 
@@ -468,6 +465,13 @@ void Pc98BLEKbdRptParser::OnKeyUp(uint8_t mod, uint8_t key)
   
   //CapsLock,かなキーはOnKeyUpでコマンド送らない
   if(c == KEY98_CPSLK || c == KEY98_KANA) return;
+
+#ifdef BLE_3COIN_KB
+  //3COINキーボード　\ -> YENへ
+  if(c == 0x33 && !p_shift && !p_ctrl){
+    c = 0x0D; 
+  }
+#endif
   
   pc98key_send(c | R_CODE);
 
@@ -489,12 +493,14 @@ void Pc98BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
 #ifdef KEY_B_DEBUG
       Serial.println("LeftCtrl push");
 #endif
-      pc98key_send(KEY98_CTRL);  
+      pc98key_send(KEY98_CTRL);
+      p_ctrl = true;  
     }else{
 #ifdef KEY_B_DEBUG
       Serial.println("LeftCtrl relase");
 #endif
       pc98key_send(KEY98_CTRL | R_CODE);
+      p_ctrl = false;
     }
   }
 
@@ -504,13 +510,15 @@ void Pc98BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
 #ifdef KEY_B_DEBUG
       Serial.println("LeftShift push");
 #endif
-      pc98key_send(KEY98_SHIFT);  
+      pc98key_send(KEY98_SHIFT);
+      p_shift = true;  
       last_downkey = 0xFF;
     }else{
 #ifdef KEY_B_DEBUG
       Serial.println("LeftShift relase");
 #endif
       pc98key_send(KEY98_SHIFT | R_CODE);
+      p_shift = false;
       down_mi = millis();
     }
   }
@@ -522,12 +530,14 @@ void Pc98BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
 #ifdef KEY_B_DEBUG
       Serial.println("LeftAlt push");
 #endif
-      pc98key_send(KEY98_GRPH);  
+      pc98key_send(KEY98_GRPH);
+      p_alt = true;  
     }else{
 #ifdef KEY_B_DEBUG
       Serial.println("LeftAlt relase");
 #endif
       pc98key_send(KEY98_GRPH | R_CODE);
+      p_alt = false;
     }
   }
   
@@ -554,12 +564,14 @@ void Pc98BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
 #ifdef KEY_B_DEBUG
       Serial.println("RightCtrl push");
 #endif
-      pc98key_send(KEY98_CTRL);  
+      pc98key_send(KEY98_CTRL); 
+      p_ctrl = true;
     }else{
 #ifdef KEY_B_DEBUG
       Serial.println("RightCtrl relase");
 #endif
       pc98key_send(KEY98_CTRL | R_CODE);
+      p_ctrl = false;
     }
   }
   
@@ -570,12 +582,14 @@ void Pc98BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
       Serial.println("RightShift push");
 #endif
       pc98key_send(KEY98_SHIFT);  
+      p_shift = true;
       last_downkey = 0xFF;
     }else{
 #ifdef KEY_B_DEBUG
       Serial.println("RightShift relase");
 #endif
       pc98key_send(KEY98_SHIFT | R_CODE);
+      p_shift = false;
       down_mi = millis();  
     }
   }
@@ -588,11 +602,13 @@ void Pc98BLEKbdRptParser::OnControlKeysChanged(uint8_t before, uint8_t after) {
       Serial.println("RightAlt push");
 #endif
       pc98key_send(KEY98_GRPH);  
+      p_alt = true;
     }else{
 #ifdef KEY_B_DEBUG
       Serial.println("RightAlt relase");
 #endif
       pc98key_send(KEY98_GRPH | R_CODE);
+      p_alt = false;
     }
   }
 
@@ -676,7 +692,11 @@ codeArray[0x2D] = 0x0B;    // -
 codeArray[0x2E] = 0x0C;    // ^  
 codeArray[0x2F] = 0x1A;    // @  
 codeArray[0x30] = 0x1B;    // [  
-codeArray[0x31] = 0xFF;    // ??  
+#ifdef BLE_3COIN_KB
+  codeArray[0x31] = 0x28;    // ] ※BLE　3COINキーボードでは0x32と同じ   
+#else
+  codeArray[0x31] = 0xFF;    // ??   
+#endif
 codeArray[0x32] = 0x28;    // ]  
 codeArray[0x33] = 0x26;    // ;  
 codeArray[0x34] = 0x27;    // :  

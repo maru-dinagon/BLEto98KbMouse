@@ -6,14 +6,19 @@
 #include "Pc98BLEKbdRptParser.hpp"
 
 //通知デバック用
-#define NOTIFY_DEBUG 
+//#define NOTIFY_DEBUG 
 //アドバタイズデバック用
-#define ADVERTISE_DEV_DEBUG
+//#define ADVERTISE_DEV_DEBUG
 
 #define DO_NOT_CONNECT   0
 #define DO_CONNECT_MOUSE 1
 #define DO_CONNECT_KB    2
+static int doConnect = DO_NOT_CONNECT;
 
+//アドバタイジングされ、接続に利用する為のデバイスの保持
+static NimBLEAdvertisedDevice* advDevice;
+
+//キーボード・マウスパーサー
 static Pc98BLEMouseReportParser mouse_rpt_parser;
 static Pc98BLEKbdRptParser kb_rpt_parser;
 
@@ -22,6 +27,7 @@ static NimBLEUUID serviceUUID("1812");
 // UUID Report Charcteristic
 static NimBLEUUID charUUID("2a4d");
 
+//現在接続しているアドレスの保持
 NimBLEAddress Mouse_Ad,Kb_Ad;
 
 //ペアリング時に通知されるマウス名(一部でもOK) 要事前調査
@@ -29,10 +35,13 @@ const char* MOUSE_NAME_WORD = "shellpha";
 //ペアリング時に通知されるキーボード名(一部でもOK) 要事前調査
 const char* KB_NAME_WORD = "BT WORD";
 
+//LittleFSが使えるかどうかの保持
+static bool isEnable_fs;
 //ペアリング後デバイスアドレスをLittleFSに保存するファイル名
 static String MOUSE_AD_FILE = "/mouse.txt";
 static String KB_AD_FILE = "/kb.txt";
 
+//updateConnParams通知内容保存用定義(xxxx_F + xxx_EXTのファイル名でint値の保存)
 static String ITVL_MIN_F = "/itvl_min";
 static String ITVL_MAX_F = "/itvl_max";
 static String LATENCY_F  = "/latency";
@@ -41,9 +50,6 @@ static String TIMEOUT_F  = "/timeout";
 static String MOUSE_EXT  = ".mouse";
 static String KB_EXT     = ".kb";
 
-static NimBLEAdvertisedDevice* advDevice;
-
-static int doConnect = DO_NOT_CONNECT;
 
 //マウスとキーボードの接続状態
 static bool ConnectMouse = false;
@@ -51,13 +57,24 @@ static bool ConnectKB    = false;
 
 static uint32_t scanTime = 0; // 0でずっとスキャン
 
+//LittleFSへのint値の保存
 void saveValue(String F_Name,int value){
+    if(!isEnable_fs){
+      Serial.println("LittleFS is unable");
+      return;
+    }
     File dataFile = LittleFS.open(F_Name, "w");
     dataFile.println(String(value).c_str());
     dataFile.close();  
 }
 
+//LittleFSへのint値の読み出し
 int loadValue(String F_Name,int def_value){
+    if(!isEnable_fs){
+      Serial.println("LittleFS is unable");
+      return def_value;
+    }
+    if(!LittleFS.exists(F_Name)) return def_value;
     File dataFile = LittleFS.open(F_Name, "r");
     String buf = dataFile.readStringUntil('\n');
     dataFile.close();
@@ -74,13 +91,23 @@ int loadValue(String F_Name,int def_value){
     }
 }
 
+//LittleFSへのマウスアドレスの保存・ロード
 void saveMouseAd(NimBLEAddress ad){
+      if(!isEnable_fs){
+      Serial.println("LittleFS is unable");
+      return;
+    }
     File dataFile = LittleFS.open(MOUSE_AD_FILE, "w");
     dataFile.println(ad.toString().c_str());
     dataFile.close();
 }
 
 NimBLEAddress getMouseAd(){
+    if(!isEnable_fs){
+      Serial.println("LittleFS is unable");
+      return NimBLEAddress();
+    }
+    if(!LittleFS.exists(MOUSE_AD_FILE)) return NimBLEAddress();
     File dataFile = LittleFS.open(MOUSE_AD_FILE, "r");
     String buf = dataFile.readStringUntil('\n');
     dataFile.close();
@@ -89,13 +116,23 @@ NimBLEAddress getMouseAd(){
     return NimBLEAddress(buf.c_str());
 }
 
+//LittleFSへのキーボードアドレスの保存・ロード
 void saveKbAd(NimBLEAddress ad){
+      if(!isEnable_fs){
+      Serial.println("LittleFS is unable");
+      return;
+    }
     File dataFile = LittleFS.open(KB_AD_FILE, "w");
     dataFile.println(ad.toString().c_str());
     dataFile.close();
 }
 
 NimBLEAddress getKbAd(){
+    if(!isEnable_fs){
+      Serial.println("LittleFS is unable");
+      return NimBLEAddress();
+    }
+    if(!LittleFS.exists(KB_AD_FILE)) return NimBLEAddress();
     File dataFile = LittleFS.open(KB_AD_FILE, "r");
     String buf = dataFile.readStringUntil('\n');
     dataFile.close();
@@ -109,7 +146,7 @@ void scanEndedCB(NimBLEScanResults results){
     Serial.println("Scan Ended");
 }
 
-// これらはデフォルトでライブラリによって処理されるため、いずれも必要ない。 必要に応じて削除してください。 
+// クライアント(ペリフェラル)からのコールバック 
 class ClientCallbacks : public NimBLEClientCallbacks {
     
     void onConnect(NimBLEClient* pClient) {
@@ -127,9 +164,7 @@ class ClientCallbacks : public NimBLEClientCallbacks {
         }else{
           Serial.println("updateConnParams called : Def Value");
           pClient->updateConnParams(120,120,0,60);
-
         }
-        //pClient->updateConnParams(6,6,23,200); //事前調査値
         Mouse_Ad = pClient->getPeerAddress();
         
       }else
@@ -140,8 +175,14 @@ class ClientCallbacks : public NimBLEClientCallbacks {
         int itvl_max = loadValue(ITVL_MAX_F + KB_EXT,-1);
         int latency  = loadValue(LATENCY_F  + KB_EXT,-1);
         int time_out = loadValue(TIMEOUT_F  + KB_EXT,-1);        
-        Serial.printf("itvl_min = %d, itvl_max = %d, latency = %d, timeout = %d",itvl_min,itvl_max,latency,time_out);
-        pClient->updateConnParams(7,7,0,300); //事前調査値
+        Serial.printf("itvl_min = %d, itvl_max = %d, latency = %d, timeout = %d\n",itvl_min,itvl_max,latency,time_out);
+        if(itvl_min>=0 && itvl_max>=0 && latency>=0 && time_out>=0){
+          Serial.println("updateConnParams called : Save Value");
+          pClient->updateConnParams(itvl_min,itvl_max,latency,time_out);
+        }else{
+          Serial.println("updateConnParams called : Def Value");
+          pClient->updateConnParams(120,120,0,60);
+        }
         Kb_Ad = pClient->getPeerAddress();
       }else{
         //新規デバイスと接続
@@ -255,6 +296,11 @@ class ClientCallbacks : public NimBLEClientCallbacks {
             NimBLEDevice::getClientByID(desc->conn_handle)->disconnect();
             return;
         }
+        /*
+        //ここでのitvl,latency,timeoutはonConnParamsUpdateRequestと異なることがある…
+        Serial.printf("ble_gap_conn_desc : itvl = %d, latency = %d, timeout = %d\n ",desc->conn_itvl,desc->conn_latency,desc->supervision_timeout);
+        */
+
     };
 };
 //ClientCallbacksのインスタンス
@@ -329,7 +375,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         return;
       }
 
-      Serial.println("UnKown HID Device! Not Connection");
+      Serial.println("UnKown HID Device! Refuse Connection");
       /*
       // stop scan before connecting
       NimBLEDevice::getScan()->stop();
@@ -456,9 +502,9 @@ bool connectToServer() {
 
 
     NimBLERemoteService *pSvc = nullptr;
+    
     //複数扱うためにvectorを使う
     std::vector<NimBLERemoteCharacteristic*> *pChrs = nullptr;
-
     NimBLERemoteDescriptor *pDsc = nullptr;
 
     //HIDサービスを取得する
@@ -561,6 +607,7 @@ void setup (){
 
     //キーボードパーサー初期化
     kb_rpt_parser.setUp98Keyboard();
+
     //キーボート通信処理用タスク(起動直後のパケット送受信に間に合わせるためCore1でマルチタスク化)
     //Core0はBLEで使っておりnotifyCBが激重になるのでダメ
     xTaskCreatePinnedToCore(Core1_KbdTask, "Core1_KbdTask", 4096, NULL, 24, &thp[0], 1); 
@@ -569,8 +616,13 @@ void setup (){
     mouse_rpt_parser.setUpBusMouse();
  
     //ファイルシステム初期化
-    LittleFS.begin();
-    Serial.println("LittleFS started");
+    if(LittleFS.begin()){
+      Serial.println("LittleFS was started");
+      isEnable_fs = true;
+    }else{
+      Serial.println("LittleFS was NOT started");
+      isEnable_fs = false;
+    }
 
     //NimBLE初期化とアドバタイズ機器の検索開始
     Serial.println("Starting NimBLE Client");
@@ -615,7 +667,7 @@ void loop() {
         }
     }
     
-    doConnect = false;
+    doConnect = DO_NOT_CONNECT;
 
     //マウスかキーボードが接続されてなければアドバタイズ機器のスキャン再開
     if((!ConnectMouse) || (!ConnectKB))
