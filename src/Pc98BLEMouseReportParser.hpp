@@ -11,7 +11,6 @@
 #define RB 26
 
 //#define MOUSE_DEBUG
-
 //USBマウスの生データを出力するかどうか
 //#define OUTPUT_MOUSE_DATA
 
