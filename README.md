@@ -18,6 +18,13 @@
 [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino)
 
 ## 紹介と仕様解説ブログ
+
+[[PC-98][ESP32] Bluetooth(BLE HID)マウス・キーボードをESP32でPC-98につなげる①](https://androiphone.uvs.jp/?p=4257)<br>
+[[PC-98][ESP32] Bluetooth(BLE HID)マウス・キーボードをESP32でPC-98につなげる②](https://androiphone.uvs.jp/?p=4277)<br>
+[[PC-98][ESP32] Bluetooth(BLE HID)マウス・キーボードをESP32でPC-98につなげる③](https://androiphone.uvs.jp/?p=4286)<br>
+<br>
+※下も読んでおくこと前提みたいな感じです<br>
+
 [[PC-98][ESP32] USBマウス・キーボードをESP32でPC-98につなげる①](https://androiphone.uvs.jp/?p=4136)<br>
 [[PC-98][ESP32] USBマウス・キーボードをESP32でPC-98につなげる②](https://androiphone.uvs.jp/?p=4157)
 
