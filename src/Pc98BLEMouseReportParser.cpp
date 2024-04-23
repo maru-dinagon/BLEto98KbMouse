@@ -4,18 +4,19 @@ void Pc98BLEMouseReportParser::Parse(uint8_t len, uint8_t *buf){
   
   MOUSEINFO_EX pmi;
   bool f = ParseMouseData(pmi,len,buf);
-  if(!f || OUTPUT_MOUSE_DATA){
-    if (len && buf)  {
-      Serial.print(F("MouseData"));
-      Serial.print(F(": "));
-      for (uint8_t i = 0; i < len; i++) {
-          if (buf[i] < 16) Serial.print(F("0"));
-          Serial.print(buf[i], HEX);
-          Serial.print(F(" "));
-      }
-      Serial.println("");
+
+#ifdef OUTPUT_MOUSE_DATA
+  if (len && buf)  {
+    Serial.print(F("MouseData"));
+    Serial.print(F(": "));
+    for (uint8_t i = 0; i < len; i++) {
+        if (buf[i] < 16) Serial.print(F("0"));
+        Serial.print(buf[i], HEX);
+        Serial.print(F(" "));
     }
+    Serial.println("");
   }
+#endif
 
   if(!f) return;
 

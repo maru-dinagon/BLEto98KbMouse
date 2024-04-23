@@ -12,6 +12,9 @@
 
 //#define MOUSE_DEBUG
 
+//USBマウスの生データを出力するかどうか
+//#define OUTPUT_MOUSE_DATA
+
 struct MOUSEINFO_EX {
     uint8_t bmLeftButton = 0;
     uint8_t bmRightButton = 0;
@@ -23,8 +26,6 @@ struct MOUSEINFO_EX {
 
 class Pc98BLEMouseReportParser
 {
-  //USBマウスの生データを出力するかどうか
-  static const bool OUTPUT_MOUSE_DATA = false;
   
   private:
     struct MOUSEINFO_EX	prev_mInfo;

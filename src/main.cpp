@@ -6,7 +6,7 @@
 #include "Pc98BLEKbdRptParser.hpp"
 
 //通知デバック用
-//#define NOTIFY_DEBUG 
+#define NOTIFY_DEBUG 
 //アドバタイズデバック用
 //#define ADVERTISE_DEV_DEBUG
 
