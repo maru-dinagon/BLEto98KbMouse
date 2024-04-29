@@ -1,12 +1,12 @@
 # BLEto98KbMouse
  エレコムのBLEマウスと3COINのBLEキーボードをESP32を用いて、 98用キーボード・バスマウスに変換<br><br>
 [エレコム マウス ワイヤレスマウス SHELLPHA Bluetooth 静音 抗菌 5ボタン ブラック M-SH20BBSKBK](https://amzn.to/4aNvktV)<br>
-[3COINS(スリーコインズ)Bluetoothキーボード](https://www.palcloset.jp/display/item/2008-KP-003-000/?cl=11&b=3coins&ss=)
+ダイソー1000円のフルサイズキーボード　白い奴じゃなくて黒いやつ
 
 ## 必要な機材
  ・ESP32 Dev Board(ESP-WROOM-32)<br>
  ・エレコム マウス ワイヤレスマウス SHELLPHA<br>
- ・3COINS(スリーコインズ)Bluetoothキーボード<br>
+ ・ダイソーBluetoothキーボード<br>
  ※必ず上のメーカーの機材というわけではなくコード修正でなんとかなると思います
 
 ## 開発環境
