@@ -6,7 +6,7 @@
 //デバック用
 //#define KEY_B_DEBUG
 //3COINのBLEキーボード用設定有効
-#define BLE_3COIN_KB
+//#define BLE_3COIN_KB
 
 //98側(miniDin8)ピン定義
 #define RST 4 //リセット要求

@@ -33,7 +33,7 @@ NimBLEAddress Mouse_Ad,Kb_Ad;
 //ペアリング時に通知されるマウス名(一部でもOK) 要事前調査
 const char* MOUSE_NAME_WORD = "shellpha";
 //ペアリング時に通知されるキーボード名(一部でもOK) 要事前調査
-const char* KB_NAME_WORD = "BT WORD";
+const char* KB_NAME_WORD = "BT FullKey";
 
 //LittleFSが使えるかどうかの保持
 static bool isEnable_fs;
